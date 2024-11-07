@@ -61,19 +61,27 @@ async function streamUploadFromUrl(url, fileName) {
     body: form,
   });
 
-  // Try parsing the response as JSON
-  let jsonResponse;
-  try {
-    jsonResponse = await uploadResponse.json();
-  } catch (err) {
-    throw new Error(`Unexpected response format from PixelDrain: ${await uploadResponse.text()}`);
-  }
+  // Check if response is JSON
+  const contentType = uploadResponse.headers.get("content-type");
+  if (contentType && contentType.includes("application/json")) {
+    // Try parsing the response as JSON
+    let jsonResponse;
+    try {
+      jsonResponse = await uploadResponse.json();
+    } catch (err) {
+      throw new Error(`Error parsing JSON response from PixelDrain: ${err.message}`);
+    }
 
-  if (!jsonResponse || !jsonResponse.id) {
-    throw new Error('Failed to upload to PixelDrain');
-  }
+    if (!jsonResponse || !jsonResponse.id) {
+      throw new Error('Failed to upload to PixelDrain');
+    }
 
-  return jsonResponse;
+    return jsonResponse;
+  } else {
+    // If response is not JSON, return an error with the raw text response
+    const textResponse = await uploadResponse.text();
+    throw new Error(`Unexpected response format from PixelDrain: ${textResponse}`);
+  }
 }
 
 // Function to extract Google Drive file ID
