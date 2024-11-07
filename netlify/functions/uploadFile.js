@@ -1,72 +1,83 @@
 const fetch = require('node-fetch');
 const FormData = require('form-data');
 
-const PIXELDRAIN_API_KEY = '72f32e0e-6c19-4edd-a944-30da5f4eee6b';
-const GOOGLE_API_KEY = 'AIzaSyBl_IIgoc6zc0Qobciwm7RM9N8KXe_lt0k';
-
 exports.handler = async (event) => {
-    if (event.httpMethod !== 'POST') {
-        return {
-            statusCode: 200,
-            body: `
-            <!DOCTYPE html>
-            <html lang="en">
-            <head><meta charset="UTF-8"><title>Upload File</title></head>
-            <body><h1>Upload File to PixelDrain</h1></body>
-            </html>
-            `,
-        };
+  if (event.httpMethod !== 'POST') {
+    return {
+      statusCode: 405,
+      body: 'Method Not Allowed',
+    };
+  }
+
+  try {
+    const { sourceType, fileName, url, driveLink } = JSON.parse(event.body);
+    
+    let uploadResult;
+
+    if (sourceType === 'direct') {
+      if (!url || !fileName) throw new Error('Invalid request body for direct link upload.');
+      uploadResult = await streamUploadFromUrl(url, fileName);
+
+    } else if (sourceType === 'googleDrive') {
+      if (!driveLink) throw new Error('Google Drive link not provided.');
+      const driveFileId = extractDriveFileId(driveLink);
+      uploadResult = await streamUploadFromGoogleDrive(driveFileId, fileName);
+
+    } else {
+      throw new Error('Invalid source type.');
     }
 
-    const { sourceType, url, fileName, driveLink } = JSON.parse(event.body);
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        downloadUrl: `https://download.directserver.workers.dev/${uploadResult.id}/${fileName}`
+      }),
+    };
 
-    try {
-        let uploadResult;
-        if (sourceType === 'direct') {
-            uploadResult = await streamUploadFromUrl(url, fileName);
-        } else if (sourceType === 'googleDrive') {
-            const driveFileId = extractDriveFileId(driveLink);
-            uploadResult = await streamUploadFromGoogleDrive(driveFileId);
-        } else {
-            throw new Error("Invalid source type.");
-        }
-
-        const downloadUrl = `https://download.directserver.workers.dev/${uploadResult.id}/${fileName}`;
-        return { statusCode: 200, body: JSON.stringify({ downloadUrl }) };
-    } catch (error) {
-        return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
-    }
+  } catch (error) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: error.message || 'An unknown error occurred' }),
+    };
+  }
 };
 
-// Function to upload a file from a URL to PixelDrain
+// Helper to upload file from URL
 async function streamUploadFromUrl(url, fileName) {
-    const response = await fetch(url);
-    const fileBuffer = await response.buffer();
+  // Fetch the file from the URL
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to fetch file: ${response.statusText}`);
 
-    const formData = new FormData();
-    formData.append('file', fileBuffer, { filename: fileName });
-    const res = await fetch('https://pixeldrain.com/api/file', {
-        method: 'POST',
-        headers: { Authorization: `Basic ${Buffer.from(`:${PIXELDRAIN_API_KEY}`).toString('base64')}` },
-        body: formData,
-    });
+  // Create form data for upload to PixelDrain
+  const form = new FormData();
+  form.append('file', response.body, fileName);
 
-    return await res.json();
+  // Upload to PixelDrain
+  const uploadResponse = await fetch('https://pixeldrain.com/api/file', {
+    method: 'POST',
+    headers: {
+      Authorization: `Basic ${Buffer.from(`:${process.env.PIXELDRAIN_API_KEY}`).toString('base64')}`,
+    },
+    body: form,
+  });
+
+  // Try parsing the response as JSON
+  let jsonResponse;
+  try {
+    jsonResponse = await uploadResponse.json();
+  } catch (err) {
+    throw new Error(`Unexpected response format from PixelDrain: ${await uploadResponse.text()}`);
+  }
+
+  if (!jsonResponse || !jsonResponse.id) {
+    throw new Error('Failed to upload to PixelDrain');
+  }
+
+  return jsonResponse;
 }
 
-// Function to upload from Google Drive by file ID
-async function streamUploadFromGoogleDrive(fileId) {
-    const metadataUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?fields=name&key=${GOOGLE_API_KEY}`;
-    const metadataResponse = await fetch(metadataUrl);
-    const metadata = await metadataResponse.json();
-    const fileName = metadata.name;
-
-    const fileUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${GOOGLE_API_KEY}`;
-    return await streamUploadFromUrl(fileUrl, fileName);
-}
-
-// Extract Google Drive file ID from a link
+// Function to extract Google Drive file ID
 function extractDriveFileId(url) {
-    const matches = url.match(/[-\w]{25,}/);
-    return matches ? matches[0] : null;
+  const matches = url.match(/[-\w]{25,}/);
+  return matches ? matches[0] : null;
 }
