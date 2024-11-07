@@ -5,7 +5,7 @@ exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      body: 'Method Not Allowed',
+      body: JSON.stringify({ error: 'Method Not Allowed' }),
     };
   }
 
@@ -61,26 +61,18 @@ async function streamUploadFromUrl(url, fileName) {
     body: form,
   });
 
-  // Check if response is JSON
   const contentType = uploadResponse.headers.get("content-type");
+  const rawResponse = await uploadResponse.text(); // Read as text to inspect if needed
+
+  // Check if response is JSON and attempt to parse it
   if (contentType && contentType.includes("application/json")) {
-    // Try parsing the response as JSON
-    let jsonResponse;
     try {
-      jsonResponse = await uploadResponse.json();
+      return JSON.parse(rawResponse);
     } catch (err) {
-      throw new Error(`Error parsing JSON response from PixelDrain: ${err.message}`);
+      throw new Error(`Error parsing JSON response from PixelDrain: ${err.message} - Raw response: ${rawResponse}`);
     }
-
-    if (!jsonResponse || !jsonResponse.id) {
-      throw new Error('Failed to upload to PixelDrain');
-    }
-
-    return jsonResponse;
   } else {
-    // If response is not JSON, return an error with the raw text response
-    const textResponse = await uploadResponse.text();
-    throw new Error(`Unexpected response format from PixelDrain: ${textResponse}`);
+    throw new Error(`Unexpected response format from PixelDrain: ${rawResponse}`);
   }
 }
 
