@@ -1,0 +1,16 @@
+{
+  "name": "netlify-file-upload",
+  "version": "1.0.0",
+  "description": "File upload function for Netlify",
+  "main": "index.js",
+  "scripts": {
+    "build": "echo 'No build step required.'"
+  },
+  "dependencies": {
+    "axios": "^1.0.0", 
+    "formidable": "^2.0.1"
+  },
+  "devDependencies": {},
+  "author": "Your Name",
+  "license": "MIT"
+}
